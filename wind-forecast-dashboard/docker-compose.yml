@@ -1,0 +1,12 @@
+services:
+  wind-forecast-dashboard:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - ELEXON_API_KEY=${ELEXON_API_KEY}
+    env_file:
+      - .env
+    restart: unless-stopped
+    volumes:
+      - ./logs:/app/logs
