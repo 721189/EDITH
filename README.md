@@ -45,6 +45,8 @@ Open http://localhost:8000. API docs are at http://localhost:8000/docs. For fron
 From `wind-forecast-dashboard/`:
 
 ```bash
+npm --prefix frontend install
+npm --prefix frontend run build
 pytest -q
 ```
 
