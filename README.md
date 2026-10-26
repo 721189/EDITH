@@ -19,7 +19,7 @@ A decision-time-safe wind forecast evaluation dashboard for the Gridbricks case 
 - `wind-forecast-dashboard/backend/src/services/`: normalization, selection, matching, metrics.
 - `wind-forecast-dashboard/Dockerfile`: multi-stage frontend and Python image.
 - `Dockerfile`: root-context Docker build.
-- `vercel.json`: repository-root Vercel configuration.
+- `wind-forecast-dashboard/vercel.json`: Vercel configuration for the configured project root.
 - `.github/workflows/edith-ci.yml`: tests and frontend build.
 
 ## Run locally
