@@ -6,12 +6,12 @@ A decision-time-safe wind forecast evaluation dashboard for the Gridbricks case 
 
 - React dashboard with forecast-vs-actual charts, coverage, interval audit table, and CSV export.
 - Elexon BMRS WINDFOR forecast publications and FUELHH actual generation filtered to fuel type WIND.
-- Independent forecast selection for every expected half-hour interval using the latest valid publication at or before the configured UTC cutoff on the preceding day.
+- Independent forecast selection for every expected hourly interval using the latest valid publication at or before the configured UTC cutoff on the preceding day.
 - Exact UTC interval matching, MAE, RMSE, forecast-minus-actual bias, MAPE, and coverage.
 - Missing observations remain missing; no zero-fill and no hardcoded sample metrics.
 - FastAPI endpoints, Docker deployment, automated tests, and GitHub Actions CI.
 
-## Project layout
+Forecasts are hourly in the source data, while FUELHH actuals are half-hourly. EDITH aggregates each complete pair of half-hour actuals to an hourly mean; an hour is excluded from actual matching if either half-hour is missing.\n\n## Project layout
 
 - `wind-forecast-dashboard/frontend/`: React, Vite, Recharts, Lucide icons.
 - `wind-forecast-dashboard/backend/src/app.py`: FastAPI API.
@@ -71,7 +71,7 @@ The connected project should use `wind-forecast-dashboard` as its Root Directory
 - `GET /api/overview?decision_date_from=2026-01-01&decision_date_to=2026-01-31&cutoff_time=12:00`: evaluation metrics and interval series.
 - `GET /api/forecast-history/2026-01-15?decision_cutoff=2026-01-14T12:00:00Z`: all forecast publications and selected forecast per interval for one delivery date.
 
-Evaluation dates are restricted to January 2026. All timestamps and decision cutoffs are UTC. Bias is forecast minus actual; positive bias indicates over-forecasting. MAPE excludes matched intervals with zero actual generation. Coverage is matched intervals divided by all expected half-hour intervals.
+Evaluation dates are restricted to January 2026. All timestamps and decision cutoffs are UTC. Bias is forecast minus actual; positive bias indicates over-forecasting. MAPE excludes matched intervals with zero actual generation. Coverage is matched intervals divided by all expected hourly intervals.
 
 ## Limitations and submission checklist
 
