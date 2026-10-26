@@ -2,6 +2,5 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "fastapi",
   "installCommand": "pip install -r backend/requirements.txt",
-  "buildCommand": "npm install --prefix frontend && npm run build --prefix frontend",
-  "outputDirectory": "frontend/dist"
+  "buildCommand": "npm install --prefix frontend && npm run build --prefix frontend"
 }
