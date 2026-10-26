@@ -6,14 +6,14 @@ EDITH is a decision-time-safe wind forecast evaluation dashboard for the Gridbri
 
 - Retrieves WINDFOR forecast publications and FUELHH generation records from Elexon BMRS.
 - Filters actual generation to fuel type WIND.
-- Evaluates every expected half-hourly delivery interval in January 2026.
+- Evaluates every expected hourly delivery interval in January 2026.
 - Selects the latest valid forecast published at or before the configured UTC cutoff on the preceding day, independently for each interval.
 - Matches forecast and actual records by exact UTC interval start.
 - Reports MAE, RMSE, signed bias, MAPE (excluding zero actuals), coverage, missingness, and interval-level provenance.
 - Preserves missing values as missing; absent observations are never replaced with zero.
 - Provides a React dashboard, interval audit table, CSV export, and methodology page.
 
-## Architecture
+Forecasts are hourly in the source data, while FUELHH actuals are half-hourly. EDITH aggregates each complete pair of half-hour actuals to an hourly mean; an hour is excluded from actual matching if either half-hour is missing.\n\n## Architecture
 
 - frontend/: React, Vite, Recharts, Lucide icons.
 - backend/src/app.py: FastAPI routes.
