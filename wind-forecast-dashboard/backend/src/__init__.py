@@ -1,0 +1,1 @@
+"""EDITH backend application package."""

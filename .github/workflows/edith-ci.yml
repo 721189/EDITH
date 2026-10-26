@@ -1,0 +1,28 @@
+name: EDITH CI
+
+on:
+  push:
+    branches: [main, edith-production-fix]
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: wind-forecast-dashboard
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: wind-forecast-dashboard/backend/requirements.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: pip install -r backend/requirements.txt
+      - run: npm --prefix frontend install
+      - run: npm --prefix frontend run build
+      - run: pytest -q

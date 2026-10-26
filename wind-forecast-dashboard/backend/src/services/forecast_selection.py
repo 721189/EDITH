@@ -1,103 +1,79 @@
-"""
-Forecast selection service.
+"""Select the latest forecast publication available at a decision cutoff."""
+from __future__ import annotations
 
-Implements the decision-time forecast selection algorithm as specified in the PRD.
-
-For each delivery interval t, selects the most recently published forecast 
-available at or before the decision cutoff D_t.
-"""
-
-from datetime import datetime, timezone, timedelta
-from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
+from datetime import datetime, timezone
+from typing import Any, Iterable
 
-from .normalization import parse_utc_timestamp
+from .normalization import parse_utc_timestamp, normalize_generation
 
 
-@dataclass
+@dataclass(frozen=True)
 class ForecastSelectionResult:
-    """Result of forecast selection for a single delivery interval."""
-    delivery_start_utc: Optional[datetime]
-    publish_time_utc: Optional[datetime]
-    forecast_generation_mw: Optional[float]
+    delivery_start_utc: datetime | None
+    publish_time_utc: datetime | None
+    forecast_generation_mw: float | None
     eligible: bool
     reason: str = ""
-    source_record_id: Optional[str] = None
+    source_record_id: str | None = None
 
 
 class ForecastSelector:
-    """Selects eligible forecasts based on decision-time cutoff rules."""
-    
+    """Select one forecast for one delivery interval without future-data leakage."""
+
     def __init__(self, decision_cutoff: datetime):
-        """Initialize with the decision cutoff timestamp.
-        
-        Args:
-            decision_cutoff: The cutoff time for forecast eligibility.
-                Forecasts published at or before this time are eligible.
-        """
-        self.decision_cutoff = decision_cutoff.astimezone(timezone.utc) if decision_cutoff.tzinfo else \
-            decision_cutoff.replace(tzinfo=timezone.utc)
-    
-    def select_forecast(self, forecasts: List[Dict], 
-                       decision_cutoff: datetime = None) -> ForecastSelectionResult:
-        """Select the most recent eligible forecast for a delivery interval.
-        
-        Args:
-            forecasts: List of forecast records for the same delivery interval,
-                already normalized with publishTime_utc populated.
-            decision_cutoff: Override the instance's decision cutoff.
-        
-        Returns:
-            ForecastSelectionResult with the selected forecast or None if
-            no eligible forecast exists.
-        """
-        cutoff = self.decision_cutoff if decision_cutoff is None else \
-            parse_utc_timestamp(decision_cutoff).astimezone(timezone.utc) if decision_cutoff else self.decision_cutoff
-        
-        # Filter forecasts published at or before the cutoff
-        eligible = []
-        for f in forecasts:
-            publish_time = f.get("publishTime_utc")
-            if publish_time is None:
+        cutoff = parse_utc_timestamp(decision_cutoff)
+        if cutoff is None:
+            raise ValueError("decision_cutoff must be a valid datetime")
+        self.decision_cutoff = cutoff
+
+    def select_forecast(
+        self,
+        forecasts: Iterable[dict[str, Any]],
+        decision_cutoff: datetime | None = None,
+    ) -> ForecastSelectionResult:
+        cutoff = parse_utc_timestamp(decision_cutoff) if decision_cutoff is not None else self.decision_cutoff
+        if cutoff is None:
+            cutoff = self.decision_cutoff
+
+        eligible: list[tuple[datetime, dict[str, Any]]] = []
+        for forecast in forecasts:
+            published = parse_utc_timestamp(forecast.get("publishTime_utc", forecast.get("publishTime")))
+            delivery = parse_utc_timestamp(forecast.get("startTime_utc", forecast.get("startTime")))
+            generation = normalize_generation(forecast.get("generation_mw", forecast.get("generation")))
+            if published is None or delivery is None or generation is None:
                 continue
-            if publish_time <= cutoff:
-                eligible.append(f)
-        
+            if published <= cutoff:
+                eligible.append((published, forecast))
+
         if not eligible:
             return ForecastSelectionResult(
                 delivery_start_utc=None,
                 publish_time_utc=None,
                 forecast_generation_mw=None,
                 eligible=False,
-                reason="No forecast published on or before decision cutoff"
+                reason="No valid forecast was published on or before the decision cutoff.",
             )
-        
-        # Select the most recently published forecast (max publishTime)
-        selected = max(eligible, key=lambda f: f.get("publishTime_utc", datetime.min.replace(tzinfo=timezone.utc)))
-        
-        return ForecastSelectionResult(
-            delivery_start_utc=selected.get("startTime_utc"),
-            publish_time_utc=selected.get("publishTime_utc"),
-            forecast_generation_mw=selected.get("generation_mw"),
-            eligible=True,
-            reason=f"Selected forecast published at {selected.get('publishTime_utc')}",
-            source_record_id=selected.get("source_record_id")
+
+        # Stable tie-breaking makes duplicates deterministic.
+        published, selected = max(
+            eligible,
+            key=lambda item: (
+                item[0],
+                str(item[1].get("source_record_id", item[1].get("sourceRecordId", ""))),
+            ),
         )
-    
-    def select_for_interval(self, interval_forecasts: List[Dict]) -> Optional[ForecastSelectionResult]:
-        """Select forecast for a single delivery interval.
-        
-        This is the main entry point - given all forecasts for a delivery interval,
-        select the most recent one published on or before the decision cutoff.
-        
-        Args:
-            interval_forecasts: List of forecast records for one delivery interval.
-                Each should have: startTime_utc, publishTime_utc, generation_mw
-        
-        Returns:
-            ForecastSelectionResult or None if no data available
-        """
-        if not interval_forecasts:
-            return None
-        
+        return ForecastSelectionResult(
+            delivery_start_utc=parse_utc_timestamp(selected.get("startTime_utc", selected.get("startTime"))),
+            publish_time_utc=published,
+            forecast_generation_mw=normalize_generation(
+                selected.get("generation_mw", selected.get("generation"))
+            ),
+            eligible=True,
+            reason="Latest valid publication at or before the decision cutoff.",
+            source_record_id=selected.get("source_record_id", selected.get("sourceRecordId")),
+        )
+
+    def select_for_interval(self, interval_forecasts: list[dict[str, Any]]) -> ForecastSelectionResult:
+        """Compatibility alias. Input records must all describe one delivery interval."""
         return self.select_forecast(interval_forecasts)

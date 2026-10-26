@@ -48,12 +48,17 @@ class ElexonAPIClient:
         Returns:
             List of FUELHH records
         """
+        # Dataset streams filter by publication timestamp, not delivery startTime.
         params = {
-            "startTime": start_time,
-            "endTime": end_time,
+            "publishDateTimeFrom": start_time,
+            "publishDateTimeTo": end_time,
         }
         data = self._request("GET", "/datasets/FUELHH/stream", params=params)
-        return data if isinstance(data, list) else []
+        if isinstance(data, list):
+            return data
+        if isinstance(data, dict) and isinstance(data.get("data"), list):
+            return data["data"]
+        return []
     
     def get_windfor(self, start_time: str, end_time: str) -> List[Dict]:
         """Retrieve WINDFOR data for a given time range.
@@ -65,9 +70,14 @@ class ElexonAPIClient:
         Returns:
             List of WINDFOR records
         """
+        # WINDFOR history is queried by publication time to retain revisions.
         params = {
-            "startTime": start_time,
-            "endTime": end_time,
+            "publishDateTimeFrom": start_time,
+            "publishDateTimeTo": end_time,
         }
         data = self._request("GET", "/datasets/WINDFOR/stream", params=params)
-        return data if isinstance(data, list) else []
+        if isinstance(data, list):
+            return data
+        if isinstance(data, dict) and isinstance(data.get("data"), list):
+            return data["data"]
+        return []

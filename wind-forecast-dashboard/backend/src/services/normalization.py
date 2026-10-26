@@ -1,107 +1,113 @@
-"""
-Elexon data normalization utilities.
+"""Normalization helpers for Elexon FUELHH and WINDFOR records."""
+from __future__ import annotations
 
-Handles timestamp parsing, numeric value validation, and data normalization
-for FUELHH and WINDFOR datasets.
-"""
-
-import re
+import logging
+import math
 from datetime import datetime, timezone
-from typing import Any, Optional, Dict, List
+from typing import Any, Mapping
+
+logger = logging.getLogger(__name__)
 
 
-def parse_utc_timestamp(value: Any) -> Optional[datetime]:
-    """Parse a UTC timestamp string into a datetime object.
-    
-    Handles ISO 8601 formats like '2026-01-15T13:00:00Z'.
-    Returns None if parsing fails.
-    """
+def parse_utc_timestamp(value: Any) -> datetime | None:
+    """Parse ISO-8601 timestamps; naive timestamps are interpreted as UTC."""
     if value is None:
         return None
     if isinstance(value, datetime):
-        return value.astimezone(timezone.utc) if value.tzinfo else value.replace(tzinfo=timezone.utc)
-    
-    value_str = str(value).strip()
-    # Try common ISO 8601 formats
-    formats = [
-        "%Y-%m-%dT%H:%M:%SZ",
-        "%Y-%m-%dT%H:%M:%S.%fZ",
-        "%Y-%m-%dT%H:%M:%S+00:00",
-        "%Y-%m-%dT%H:%M:%S.%f+00:00",
-    ]
-    
-    for fmt in formats:
-        try:
-            dt = datetime.strptime(value_str, fmt)
-            return dt.astimezone(timezone.utc)
-        except ValueError:
-            continue
-    
-    logger.warning(f"Could not parse timestamp: {value}")
-    return None
-
-
-def normalize_generation(value: Any) -> Optional[float]:
-    """Normalize a generation value to float.
-    
-    Returns None if value is missing or non-numeric.
-    Preserves zero and negative values as valid observations.
-    """
-    if value is None:
-        return None
-    if isinstance(value, (int, float)):
-        if isinstance(value, bool):
+        parsed = value
+    else:
+        text = str(value).strip()
+        if not text:
             return None
-        return float(value)
-    
+        try:
+            parsed = datetime.fromisoformat(text[:-1] + "+00:00" if text.endswith(("Z", "z")) else text)
+        except ValueError:
+            logger.warning("Could not parse timestamp %r", value)
+            return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def normalize_generation(value: Any) -> float | None:
+    """Return a finite numeric MW value; preserve zero and reject booleans."""
+    if value is None or isinstance(value, bool):
+        return None
     try:
         result = float(value)
-        return result
-    except (ValueError, TypeError):
-        logger.warning(f"Could not convert generation to float: {value}")
+    except (TypeError, ValueError, OverflowError):
+        logger.warning("Could not convert generation to float: %r", value)
         return None
+    return result if math.isfinite(result) else None
 
 
 def is_valid_fuel_type(fuel_type: Any) -> bool:
-    """Check if fuel type indicates wind generation."""
-    if fuel_type is None:
-        return False
-    return str(fuel_type).strip().upper() == "WIND"
+    """Only the national WIND fuel-type records are used for actual generation."""
+    return fuel_type is not None and str(fuel_type).strip().upper() == "WIND"
 
 
-def validate_record(record: Dict, dataset: str) -> Dict[str, Any]:
-    """Validate and extract core fields from a dataset record.
-    
-    Args:
-        record: Raw API record
-        dataset: Either 'FUELHH' or 'WINDFOR'
-    
-    Returns:
-        Dict with normalized fields or raises validation error
-    """
-    result = {
+def _first_present(record: Mapping[str, Any], *keys: str) -> Any:
+    for key in keys:
+        if key in record and record[key] is not None:
+            return record[key]
+    return None
+
+
+def validate_record(record: Mapping[str, Any], dataset: str) -> dict[str, Any]:
+    """Normalize the fields required from a FUELHH or WINDFOR record."""
+    if not isinstance(record, Mapping):
+        raise TypeError("Elexon record must be a mapping")
+    dataset = dataset.upper()
+    if dataset not in {"FUELHH", "WINDFOR"}:
+        raise ValueError("dataset must be FUELHH or WINDFOR")
+
+    normalized: dict[str, Any] = {
         "dataset": dataset,
-        "source_record_id": record.get("sourceRecordId") 
-            if hasattr(record, 'get') else record.get("sourceRecordId"),
+        "source_record_id": _first_present(record, "sourceRecordId", "source_record_id"),
+        "startTime_utc": parse_utc_timestamp(_first_present(record, "startTime", "StartTime", "startTime_utc")),
+        "generation_mw": normalize_generation(
+            _first_present(record, "generation", "Generation", "generation_mw")
+        ),
     }
-    
-    # Parse startTime (delivery interval)
-    start_time = record.get("startTime") or record.get("StartTime")
-    result["startTime_utc"] = parse_utc_timestamp(start_time)
-    
-    # Parse publishTime (for WINDFOR only)
     if dataset == "WINDFOR":
-        publish_time = record.get("publishTime") or record.get("PublishTime")
-        result["publishTime_utc"] = parse_utc_timestamp(publish_time)
-    
-    # Parse generation
-    generation = record.get("generation") or record.get("Generation")
-    result["generation_mw"] = normalize_generation(generation)
-    
-    # Parse fuelType (FUELHH only)
-    if dataset == "FUELHH":
-        fuel_type = record.get("fuelType") or record.get("FuelType")
-        result["fuelType"] = fuel_type
-        result["is_wind"] = is_valid_fuel_type(fuel_type)
-    
-    return result
+        normalized["publishTime_utc"] = parse_utc_timestamp(
+            _first_present(record, "publishTime", "PublishTime", "publishTime_utc")
+        )
+    else:
+        fuel_type = _first_present(record, "fuelType", "FuelType", "fuel_type")
+        normalized["fuelType"] = fuel_type
+        normalized["is_wind"] = is_valid_fuel_type(fuel_type)
+    return normalized
+
+
+def aggregate_actuals_hourly(actuals: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Aggregate two complete FUELHH half-hour readings into hourly average MW.
+
+    An hour is emitted only when both its :00 and :30 UTC readings exist and are
+    valid. Missing half-hours are not imputed or averaged away.
+    """
+    grouped: dict[datetime, dict[int, float]] = {}
+    for row in actuals:
+        start = parse_utc_timestamp(row.get("startTime_utc", row.get("startTime")))
+        value = normalize_generation(row.get("generation_mw", row.get("generation")))
+        if start is None or value is None:
+            continue
+        hour = start.replace(minute=0, second=0, microsecond=0)
+        minute = start.minute
+        if minute not in (0, 30):
+            continue
+        grouped.setdefault(hour, {})[minute] = value
+
+    hourly: list[dict[str, Any]] = []
+    for hour, readings in sorted(grouped.items()):
+        if set(readings) != {0, 30}:
+            continue
+        hourly.append({
+            "startTime_utc": hour,
+            "generation_mw": (readings[0] + readings[30]) / 2.0,
+            "fuelType": "WIND",
+            "is_wind": True,
+            "source_interval_minutes": 30,
+            "aggregation": "mean of complete :00 and :30 FUELHH readings",
+        })
+    return hourly
