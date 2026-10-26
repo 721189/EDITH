@@ -23,6 +23,6 @@ jobs:
         with:
           node-version: "22"
       - run: pip install -r backend/requirements.txt
-      - run: pytest -q
       - run: npm --prefix frontend install
       - run: npm --prefix frontend run build
+      - run: pytest -q
