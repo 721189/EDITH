@@ -167,7 +167,7 @@ async def forecast_history(delivery_date: str, decision_cutoff: str | None = Que
                           "eligible": result.eligible, "reason": result.reason,
                           "publications": [{"publish_time": r["publishTime_utc"].isoformat(), "forecast_mw": r["generation_mw"],
                                             "eligible": r["publishTime_utc"] <= cutoff} for r in history]})
-        cursor += timedelta(minutes=30)
+        cursor += timedelta(hours=1)
     return {"delivery_date": target.isoformat(), "decision_cutoff": cutoff.isoformat(), "intervals": intervals,
             "methodology": "Each half-hour delivery interval is matched independently; post-cutoff publications are not eligible."}
 
