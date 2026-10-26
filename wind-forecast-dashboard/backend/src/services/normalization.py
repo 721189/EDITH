@@ -78,3 +78,36 @@ def validate_record(record: Mapping[str, Any], dataset: str) -> dict[str, Any]:
         normalized["fuelType"] = fuel_type
         normalized["is_wind"] = is_valid_fuel_type(fuel_type)
     return normalized
+
+
+def aggregate_actuals_hourly(actuals: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Aggregate two complete FUELHH half-hour readings into hourly average MW.
+
+    An hour is emitted only when both its :00 and :30 UTC readings exist and are
+    valid. Missing half-hours are not imputed or averaged away.
+    """
+    grouped: dict[datetime, dict[int, float]] = {}
+    for row in actuals:
+        start = parse_utc_timestamp(row.get("startTime_utc", row.get("startTime")))
+        value = normalize_generation(row.get("generation_mw", row.get("generation")))
+        if start is None or value is None:
+            continue
+        hour = start.replace(minute=0, second=0, microsecond=0)
+        minute = start.minute
+        if minute not in (0, 30):
+            continue
+        grouped.setdefault(hour, {})[minute] = value
+
+    hourly: list[dict[str, Any]] = []
+    for hour, readings in sorted(grouped.items()):
+        if set(readings) != {0, 30}:
+            continue
+        hourly.append({
+            "startTime_utc": hour,
+            "generation_mw": (readings[0] + readings[30]) / 2.0,
+            "fuelType": "WIND",
+            "is_wind": True,
+            "source_interval_minutes": 30,
+            "aggregation": "mean of complete :00 and :30 FUELHH readings",
+        })
+    return hourly
