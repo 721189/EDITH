@@ -1,6 +1,0 @@
-{
-  "$schema": "https://openapi.vercel.sh/vercel.json",
-  "framework": "fastapi",
-  "installCommand": "pip install -r wind-forecast-dashboard/backend/requirements.txt",
-  "buildCommand": "npm install --prefix wind-forecast-dashboard/frontend && npm run build --prefix wind-forecast-dashboard/frontend"
-}
