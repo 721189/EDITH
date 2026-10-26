@@ -127,11 +127,6 @@ def evaluate(start_date: date, end_date: date, cutoff_time: time) -> dict[str, A
     }
 
 
-@app.get("/", include_in_schema=False)
-async def root():
-    return JSONResponse({"name": "EDITH — Wind Forecast Intelligence", "docs": "/docs", "health": "/api/health"})
-
-
 @app.get("/api/health")
 async def health():
     return {"status": "ok", "service": "edith-api", "timestamp": datetime.now(timezone.utc).isoformat()}
@@ -177,8 +172,9 @@ async def forecast_history(delivery_date: str, decision_cutoff: str | None = Que
 
 # Vercel's FastAPI runtime can serve frontend assets from its CDN. Local/Docker use StaticFiles.
 _frontend_dist = Path(__file__).resolve().parents[2] / "frontend" / "dist"
-if hasattr(app, "frontend") and _frontend_dist.exists():
-    app.frontend("/", directory=str(_frontend_dist))
+if hasattr(app, "frontend"):
+    # Vercel resolves this project-relative path at build time and serves assets via its CDN.
+    app.frontend("/", directory="frontend/dist")
 elif _frontend_dist.exists():
     from fastapi.staticfiles import StaticFiles
     app.mount("/", StaticFiles(directory=str(_frontend_dist), html=True), name="frontend")
