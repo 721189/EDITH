@@ -11,7 +11,9 @@ A decision-time-safe wind forecast evaluation dashboard for the Gridbricks case 
 - Missing observations remain missing; no zero-fill and no hardcoded sample metrics.
 - FastAPI endpoints, Docker deployment, automated tests, and GitHub Actions CI.
 
-Forecasts are hourly in the source data, while FUELHH actuals are half-hourly. EDITH aggregates each complete pair of half-hour actuals to an hourly mean; an hour is excluded from actual matching if either half-hour is missing.\n\n## Project layout
+Forecasts are hourly in the source data, while FUELHH actuals are half-hourly. EDITH aggregates each complete pair of half-hour actuals to an hourly mean; an hour is excluded from actual matching if either half-hour is missing.
+
+## Project layout
 
 - `wind-forecast-dashboard/frontend/`: React, Vite, Recharts, Lucide icons.
 - `wind-forecast-dashboard/backend/src/app.py`: FastAPI API.
