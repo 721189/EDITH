@@ -11,7 +11,7 @@ from src.api.elexon_client import ElexonAPIClient
 from src.services.forecast_selection import ForecastSelector
 from src.services.matching import ForecastActualMatcher
 from src.services.metrics import calculate_metrics
-from src.services.normalization import parse_utc_timestamp, validate_record
+from src.services.normalization import aggregate_actuals_hourly, parse_utc_timestamp, validate_record
 
 logging.basicConfig(level="INFO")
 logger = logging.getLogger(__name__)
@@ -72,6 +72,7 @@ def evaluate(start_date: date, end_date: date, cutoff_time: time) -> dict[str, A
         datetime.combine(start_date - timedelta(days=2), time.min, timezone.utc),
         datetime.combine(end_date + timedelta(days=2), time.min, timezone.utc),
     )
+    actuals = aggregate_actuals_hourly(actuals)
     actual_by_time = {}
     for row in actuals:
         actual_by_time.setdefault(row["startTime_utc"], row)
@@ -90,7 +91,7 @@ def evaluate(start_date: date, end_date: date, cutoff_time: time) -> dict[str, A
         if result.eligible:
             selected.append({"startTime_utc": result.delivery_start_utc, "publishTime_utc": result.publish_time_utc,
                              "forecast_generation_mw": result.forecast_generation_mw, "source_record_id": result.source_record_id})
-        cursor += timedelta(minutes=30)
+        cursor += timedelta(hours=1)
 
     matching = ForecastActualMatcher().match(selected, actuals, expected_intervals=expected)
     metrics = calculate_metrics(matching.matched_pairs, total_expected_intervals=len(expected),
@@ -107,7 +108,7 @@ def evaluate(start_date: date, end_date: date, cutoff_time: time) -> dict[str, A
     return {
         "decision_period": {"from": start_date.isoformat(), "to": end_date.isoformat()},
         "cutoff_time_utc": cutoff_time.strftime("%H:%M"),
-        "data_scope": {"source": "Elexon BMRS", "datasets": ["WINDFOR", "FUELHH"], "interval_minutes": 30},
+        "data_scope": {"source": "Elexon BMRS", "datasets": ["WINDFOR", "FUELHH"], "interval_minutes": 60, "actual_aggregation": "mean of complete half-hour FUELHH readings per hour"},
         "coverage": {"total_expected_intervals": metrics.total_expected_intervals,
                      "valid_matched_intervals": metrics.valid_matched_count,
                      "coverage_percentage": round(metrics.coverage_percentage, 2),
@@ -149,6 +150,7 @@ async def forecast_history(delivery_date: str, decision_cutoff: str | None = Que
     start = datetime.combine(target, time.min, timezone.utc)
     end = start + timedelta(days=1)
     actuals, forecasts = fetch_data(start - timedelta(days=2), end + timedelta(days=1))
+    actuals = aggregate_actuals_hourly(actuals)
     actual_by_time = {r["startTime_utc"]: r for r in actuals}
     grouped: dict[datetime, list[dict[str, Any]]] = defaultdict(list)
     for r in forecasts:
