@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from src.services.normalization import parse_utc_timestamp, normalize_generation, is_valid_fuel_type, validate_record
+from src.services.normalization import parse_utc_timestamp, normalize_generation, is_valid_fuel_type, validate_record, aggregate_actuals_hourly
 from src.services.forecast_selection import ForecastSelector
 from src.services.matching import ForecastActualMatcher
 from src.services.metrics import calculate_metrics
@@ -86,3 +86,16 @@ def test_metrics_return_none_when_no_matches():
     metrics = calculate_metrics([])
     assert metrics.mae is None and metrics.rmse is None and metrics.bias is None
     assert metrics.coverage_percentage == 0
+
+
+
+def test_hourly_actual_aggregation_requires_both_half_hours():
+    actuals = [
+        {"startTime_utc": datetime(2026,1,1,0,0,tzinfo=UTC), "generation_mw": 100, "fuelType": "WIND"},
+        {"startTime_utc": datetime(2026,1,1,0,30,tzinfo=UTC), "generation_mw": 120, "fuelType": "WIND"},
+        {"startTime_utc": datetime(2026,1,1,1,0,tzinfo=UTC), "generation_mw": 140, "fuelType": "WIND"},
+    ]
+    hourly = aggregate_actuals_hourly(actuals)
+    assert len(hourly) == 1
+    assert hourly[0]["startTime_utc"] == datetime(2026,1,1,0,0,tzinfo=UTC)
+    assert hourly[0]["generation_mw"] == 110
